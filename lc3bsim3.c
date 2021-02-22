@@ -574,13 +574,47 @@ int main(int argc, char *argv[]) {
    Begin your code here 	  			       */
 /***************************************************************/
 
-
+int current_state;
+int* instruction;
 void eval_micro_sequencer() {
 
   /* 
    * Evaluate the address of the next state according to the 
    * micro sequencer logic. Latch the next microinstruction.
    */
+    int j0,j1,j2,j3,j4,j5,jreg,cond0,cond1,ir11,ready,ben,ird;
+
+    instruction = CURRENT_LATCHES.MICROINSTRUCTION;
+    current_state = CURRENT_LATCHES.STATE_NUMBER;
+    cond0 = instruction[COND0];
+    cond1 = instruction[COND1];
+    ir11 = (CURRENT_LATCHES.IR & 0x00000800)>>11;
+    ready = CURRENT_LATCHES.READY;
+    ben = CURRENT_LATCHES.BEN;
+    ird = instruction[IRD];
+    j0 = instruction[J0] || (ir11 && cond0 && cond1);
+    j1 = (instruction[J1] || ((~cond1) && cond0 && ready))<< 1;
+    j2 = (instruction[J2] || ((~cond0) && ben && cond1))<< 2;
+    j3 = instruction[J3]<<3;
+    j4 = instruction[J4]<<4;
+    j5 = instruction[J5]<<5;
+    jreg = j0 | j1 | j2 | j3 | j4 | j5; 
+    if(ird){
+        NEXT_LATCHES.STATE_NUMBER = (CURRENT_LATCHES.IR & 0x0000f000) >> 12; 
+        for(int i = 0 ; i < CONTROL_STORE_BITS; i++){
+            NEXT_LATCHES.MICROINSTRUCTION[i] = CONTROL_STORE[NEXT_LATCHES.STATE_NUMBER][i];
+        }
+    }
+    else{
+        NEXT_LATCHES.STATE_NUMBER = jreg;
+        for(int i = 0 ; i < CONTROL_STORE_BITS; i++){
+            NEXT_LATCHES.MICROINSTRUCTION[i] = CONTROL_STORE[NEXT_LATCHES.STATE_NUMBER][i];
+        }
+    }
+    
+    
+    
+
 
 }
 
