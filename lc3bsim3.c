@@ -631,9 +631,10 @@ void cycle_memory() {
   mioen = instruction[MIO_EN];
   rw = instruction[R_W];
   data_size = instruction[DATA_SIZE];          
-  mar0 = CURRENT_LATCHES.MAR & 0x00000001;            
-  we0 = rw;
-  we1 = rw;
+  mar0 = CURRENT_LATCHES.MAR & 0x00000001;
+  // we only occurs if the machine is doing a store            
+  we0 = (rw && data_size) || (rw && ~data_size  && ~mar0);
+  we1 = (rw && data_size) || (rw && ~data_size && mar0);
   if(mioen){
       if(cycle_count<5){
           cycle_count++;
