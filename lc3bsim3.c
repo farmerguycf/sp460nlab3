@@ -618,7 +618,7 @@ void eval_micro_sequencer() {
 
 }
 
-
+int cycle_count;
 void cycle_memory() {
  
   /* 
@@ -627,7 +627,30 @@ void cycle_memory() {
    * If fourth, we need to latch Ready bit at the end of 
    * cycle to prepare microsequencer for the fifth cycle.  
    */
-
+  int mioen, rw, we0, we1, data_size, mar0;
+  mioen = instruction[MIO_EN];
+  rw = instruction[R_W];
+  data_size = instruction[DATA_SIZE];          
+  mar0 = CURRENT_LATCHES.MAR & 0x00000001;            
+  we0 = rw;
+  we1 = rw;
+  if(mioen){
+      if(cycle_count<5){
+          cycle_count++;
+          if(cycle_count == 4){
+              NEXT_LATCHES.READY = 1;
+              }
+        }
+    if(CURRENT_LATCHES.READY){
+    //perform memory operation
+        if(rw){
+        //writing to memory
+    
+        }else{
+        // reading from memory
+        }
+     }
+    }
 }
 
 
