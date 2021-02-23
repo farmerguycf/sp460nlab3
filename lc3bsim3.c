@@ -714,11 +714,11 @@ void cycle_memory()
     }
 }
 
-int mar_mux_res, pc_res, alu_res, shf_res, mdr_res;
+int mar_mux_res, pc_res, alu_res, shf_res, mdr_res, adder_res;
 void eval_bus_drivers()
 {
-    int gate_mar_mux, gate_pc, gate_alu, gate_shf, gate_mdr, mar_mux, mar_mux_reg, addr2_mux, addr1_mux, addr2_mux_reg,
-    addr1_mux_reg, sr1_out, sr1_mux, sr2_out, lshf;
+    int gate_mar_mux, gate_pc, gate_alu, gate_shf, gate_mdr, mar_mux, addr2_mux, addr1_mux, addr2_mux_reg,
+    addr1_mux_reg, sr1_out, sr1_mux, sr2_out, lshf, ld_pc, aluk, data_size;
     /* 
    * Datapath routine emulating operations before driving the bus.
    * Evaluate the input of tristate drivers 
@@ -738,6 +738,9 @@ void eval_bus_drivers()
   addr1_mux = instruction[ADDR1MUX];
   sr1_mux = instruction[SR1MUX];
   lshf = instruction[LSHF1];
+  ld_pc = instruction[LD_PC];
+  aluk = instruction[ALUK0] | (instruction[ALUK1]<<1);
+  data_size = instruction[DATA_SIZE];
 
     // retrieving sr1 value 
   if(sr1_mux){
@@ -748,8 +751,13 @@ void eval_bus_drivers()
   }
 
   // retrieving sr2 value
-  sr2_out = CURRENT_LATCHES.REGS[CURRENT_LATCHES.IR & 0x00000007];
-
+  if(CURRENT_LATCHES.IR & 0x00000020){
+      sr2_out = sign_extend(CURRENT_LATCHES.IR & 0x0000003f, 4);
+  }
+  else{
+      sr2_out = CURRENT_LATCHES.REGS[CURRENT_LATCHES.IR & 0x00000007];
+  }
+  
   // retrieving the addr1mux value
   if(addr1_mux){
       addr1_mux_reg = CURRENT_LATCHES.REGS[(CURRENT_LATCHES.IR & 0x000001c0)>>6];
@@ -763,11 +771,11 @@ void eval_bus_drivers()
       // sext ir[5:0]
       addr2_mux_reg = sign_extend(CURRENT_LATCHES.IR & 0x0000003f,5);
   }
-  else if(addr1_mux == 2){
+  else if(addr2_mux == 2){
       // sext ir[8:0]
       addr2_mux_reg = sign_extend(CURRENT_LATCHES.IR & 0x000001ff , 8);
   }
-  else if(addr1_mux == 3){
+  else if(addr2_mux == 3){
       // sext ir[10:0]
       addr2_mux_reg = sign_extend(CURRENT_LATCHES.IR & 0x000007ff , 10);
   }
@@ -780,31 +788,76 @@ void eval_bus_drivers()
       addr2_mux_reg = addr2_mux_reg << 1;
   }
 
-  
-    
+   // placing the adder result on wire in case ld.pc is high
+  adder_res = Low16bits(addr1_mux_reg + addr2_mux_reg);
 
+
+  // putting the marmux result on bus
   if(gate_mar_mux){
       if(mar_mux){
-
+          // addr result
+          mar_mux_res = adder_res;
       }else{
-
+          //lshf(zext[IR[7:0]],1)
+          mar_mux_res = Low16bits(sign_extend(CURRENT_LATCHES.IR & 0x000000ff,7)<<1);
       }
   }
+  // if the program counter needs to be on bus
   else if(gate_pc){
-
+      pc_res = Low16bits(CURRENT_LATCHES.PC);
   }
+  // if we need to use the arithmetic logic unit
   else if(gate_alu){
-
+      if(aluk == 0){
+          // add
+          alu_res = Low16bits(sr1_out + sr2_out);
+      }
+      else if(aluk == 1){
+          // and
+          alu_res = Low16bits(sr1_out & sr2_out); 
+      }
+      else if(aluk == 2){
+          // xor
+          alu_res = Low16bits(sr1_out ^ sr2_out);
+      }
+      else if (aluk == 3){
+          // passa
+          alu_res = Low16bits(sr1_out);
+      }
   }
+  // if the shifter is needed
   else if(gate_shf){
-
+      // left shift
+      if(((CURRENT_LATCHES.IR & 0x00000030) >>4) == 0){
+          shf_res = Low16bits(sr1_out << (CURRENT_LATCHES.IR & 0x0000000f));
+      }
+      // right shift logical
+      else if(((CURRENT_LATCHES.IR & 0x00000030) >>4) == 1){
+          shf_res = Low16bits(sr1_out >> (CURRENT_LATCHES.IR & 0x0000000f));
+      }
+      // right shift arithmetic
+      else if(((CURRENT_LATCHES.IR & 0x00000030) >>4) == 3){
+          shf_res = Low16bits(sign_extend((CURRENT_LATCHES.IR & 0x0000000f), 15-(CURRENT_LATCHES.IR & 0x0000000f)));
+      }
   }
+  // get what is stored on the mdr
   else if(gate_mdr){
-
+      if(data_size){
+          mdr_res = Low16bits(CURRENT_LATCHES.MDR);
+      }
+      else {
+          if(CURRENT_LATCHES.MAR & 0x00000001){
+              mdr_res = Low16bits(sign_extend((CURRENT_LATCHES.MDR & 0x0000ff00)>>8,7));
+          }
+          else{
+              mdr_res = Low16bits(sign_extend(CURRENT_LATCHES.MDR & 0x000000ff,7));
+          }
+      }
   }
 
 }
 
+int BUS;
 void drive_bus()
 {
 
@@ -812,6 +865,22 @@ void drive_bus()
    * Datapath routine for driving the bus from one of the 5 possible 
    * tristate drivers. 
    */
+  if(instruction[GATE_MARMUX]){
+      BUS = Low16bits(mar_mux_res);
+  }
+  else if(instruction[GATE_PC]){
+      BUS = Low16bits(pc_res);
+  }
+  else if(instruction[GATE_SHF]){
+      BUS = Low16bits(shf_res);
+  }
+  else if(instruction[GATE_ALU]){
+      BUS = Low16bits(alu_res);
+  }
+  else if(instruction[GATE_MDR]){
+      BUS = Low16bits(mdr_res);
+  }
+  
 }
 
 void latch_datapath_values()
@@ -823,6 +892,61 @@ void latch_datapath_values()
    * require sourcing the bus; therefore, this routine has to come 
    * after drive_bus.
    */
+  // make sure to check the ldpc
+    int pc_mux, dr_mux;
+    pc_mux = instruction[PCMUX0] | (instruction[PCMUX1]<<1);
+    dr_mux = instruction[DRMUX];
+// update pc
+    if(instruction[LD_PC]){
+        if(pc_mux == 0){
+            // pc + 2
+             NEXT_LATCHES.PC = Low16bits(CURRENT_LATCHES.PC +2);
+        }
+        else if(pc_mux == 1){
+          // bus
+            NEXT_LATCHES.PC = Low16bits(BUS);
+        }
+        else if(pc_mux == 2){
+              // adder
+            NEXT_LATCHES.PC = Low16bits(adder_res);
+        }
+    }
+    // ld ir
+    if(instruction[LD_IR]){
+        NEXT_LATCHES.IR = Low16bits(BUS);
+    }
+    // ld reg
+    if(instruction[LD_REG]){
+        if(dr_mux){
+            NEXT_LATCHES.REGS[7] = Low16bits(BUS);
+        }
+        else{
+            NEXT_LATCHES.REGS[(CURRENT_LATCHES.IR & 0x00000e00)>>9] = Low16bits(BUS);
+        }
+    }
+    // ld mar
+    if(instruction[LD_MAR]){
+        NEXT_LATCHES.MAR = Low16bits(BUS);
+    }
+    // ld mdr
+    if(instruction[LD_MDR]){
+        if(!instruction[MIO_EN]){
+            if(instruction[DATA_SIZE]){
+                // word onto mdr
+                NEXT_LATCHES.MDR = Low16bits(BUS);
+            }
+            else{
+                // byte onto mdr based on mar[0]
+                if(CURRENT_LATCHES.MAR & 0x00000001){
+                    NEXT_LATCHES.MDR = Low16bits((BUS & 0x0000ff00) | ((BUS & 0x0000ff00)>>8));
+                }
+                else{
+                    NEXT_LATCHES.MDR = Low16bits((BUS & 0x000000ff) | ((BUS & 0x000000ff)<<8));
+                }
+            }
+        }
+    }
+
 }
 
 int sign_extend(int num, int bit){
