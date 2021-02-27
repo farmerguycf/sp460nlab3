@@ -1,6 +1,6 @@
 /*
-    Name 1: Your full name
-    UTEID 1: Your UT EID
+    Name 1: guy farmer
+    UTEID 1: gcf375
 */
 
 /***************************************************************/
@@ -32,6 +32,7 @@ void cycle_memory();
 void eval_bus_drivers();
 void drive_bus();
 void latch_datapath_values();
+int sign_extend(int num, int bit);
 
 /***************************************************************/
 /* A couple of useful definitions.                             */
@@ -678,7 +679,7 @@ void cycle_memory()
     data_size = instruction[DATA_SIZE];
     mar0 = CURRENT_LATCHES.MAR & 0x00000001;
     // we only occurs if the machine is doing a store
-    we0 = (rw && data_size) || (rw && ~data_size && ~mar0);
+    we0 = (rw && data_size) || ((rw && ~data_size) ^ mar0);
     we1 = (rw && data_size) || (rw && ~data_size && mar0);
     if (mioen)
     {
@@ -698,7 +699,7 @@ void cycle_memory()
                 //writing to memory mMAR[7:0] <- MDR[7:0] 
                 MEMORY[CURRENT_LATCHES.MAR>>1][0] = Low16bits(CURRENT_LATCHES.MDR & 0x000000ff);
             }
-            else if(we1)
+            if(we1)
             {
                 // writing to memory mMAR[15:8] <- MDR[15:8]
                 MEMORY[CURRENT_LATCHES.MAR>>1][1] = Low16bits((CURRENT_LATCHES.MDR>>8) & 0x000000ff);
@@ -752,7 +753,7 @@ void eval_bus_drivers()
 
   // retrieving sr2 value
   if(CURRENT_LATCHES.IR & 0x00000020){
-      sr2_out = sign_extend(CURRENT_LATCHES.IR & 0x0000003f, 4);
+      sr2_out = sign_extend(CURRENT_LATCHES.IR & 0x0000001f, 4);
   }
   else{
       sr2_out = CURRENT_LATCHES.REGS[CURRENT_LATCHES.IR & 0x00000007];
@@ -855,6 +856,7 @@ void eval_bus_drivers()
       }
   }
 
+
 }
 
 int BUS;
@@ -879,6 +881,9 @@ void drive_bus()
   }
   else if(instruction[GATE_MDR]){
       BUS = Low16bits(mdr_res);
+  }
+  else {
+      BUS = 0;
   }
   
 }
@@ -923,6 +928,30 @@ void latch_datapath_values()
         else{
             NEXT_LATCHES.REGS[(CURRENT_LATCHES.IR & 0x00000e00)>>9] = Low16bits(BUS);
         }
+        if(instruction[LD_CC]){
+            if(Low16bits(BUS)==0){
+                // zero
+                NEXT_LATCHES.Z = 1;
+                NEXT_LATCHES.P = 0;
+                NEXT_LATCHES.N = 0;
+            }
+            else if(Low16bits(BUS)&0x00008000){
+                //negative
+                NEXT_LATCHES.N = 1;
+                NEXT_LATCHES.Z = 0;
+                NEXT_LATCHES.P = 0;
+            }
+            else if(!(Low16bits(BUS) & 0x00008000)){
+                //positive
+                NEXT_LATCHES.P =1;
+                NEXT_LATCHES.N = 0;
+                NEXT_LATCHES.Z = 0;
+            }
+        }else{
+            NEXT_LATCHES.N = CURRENT_LATCHES.N;
+            NEXT_LATCHES.Z = CURRENT_LATCHES.Z;
+            NEXT_LATCHES.P = CURRENT_LATCHES.P;
+            }
     }
     // ld mar
     if(instruction[LD_MAR]){
@@ -936,16 +965,20 @@ void latch_datapath_values()
                 NEXT_LATCHES.MDR = Low16bits(BUS);
             }
             else{
-                // byte onto mdr based on mar[0]
-                if(CURRENT_LATCHES.MAR & 0x00000001){
-                    NEXT_LATCHES.MDR = Low16bits((BUS & 0x0000ff00) | ((BUS & 0x0000ff00)>>8));
-                }
-                else{
                     NEXT_LATCHES.MDR = Low16bits((BUS & 0x000000ff) | ((BUS & 0x000000ff)<<8));
-                }
+                
             }
         }
     }
+
+    int n = (CURRENT_LATCHES.IR & 0x00000800)>>11;
+    int z = (CURRENT_LATCHES.IR & 0x00000400)>>10;
+    int p = (CURRENT_LATCHES.IR & 0x00000200)>>9;
+    if(instruction[LD_BEN]){
+        NEXT_LATCHES.BEN = (CURRENT_LATCHES.N && n) || (CURRENT_LATCHES.Z && z) || (CURRENT_LATCHES.P && p);
+    }
+
+
 
 }
 
