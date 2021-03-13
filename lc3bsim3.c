@@ -679,8 +679,8 @@ void cycle_memory()
     data_size = instruction[DATA_SIZE];
     mar0 = CURRENT_LATCHES.MAR & 0x00000001;
     // we only occurs if the machine is doing a store
-    we0 = (rw && data_size) || ((rw && ~data_size) ^ mar0);
-    we1 = (rw && data_size) || (rw && ~data_size && mar0);
+    we0 = ~mar0 && rw;
+    we1 = rw && (mar0 ^ data_size);
     if (mioen)
     {
         if (cycle_count < 5)
@@ -838,7 +838,7 @@ void eval_bus_drivers()
       }
       // right shift arithmetic
       else if(((CURRENT_LATCHES.IR & 0x00000030) >>4) == 3){
-          shf_res = Low16bits(sign_extend((CURRENT_LATCHES.IR & 0x0000000f), 15-(CURRENT_LATCHES.IR & 0x0000000f)));
+          shf_res = Low16bits(sign_extend(sr1_out >>(CURRENT_LATCHES.IR & 0x0000000f), 15-(CURRENT_LATCHES.IR & 0x0000000f)));
       }
   }
   // get what is stored on the mdr
